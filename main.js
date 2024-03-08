@@ -146,7 +146,7 @@ function draw_board() {
 
     draw_reserve();
     draw_pieces(board);
-    setTimeout(3000, draw_turn());
+    draw_turn();
 }
 
 // draw circles in reserve for white
@@ -173,11 +173,13 @@ function draw_pieces(board) {
     for(key in board) {
         if(board[key] == 1) {
             ctx.fillStyle = "white";
+            if(key == piece_selected) ctx.fillStyle = "grey";
             ctx.beginPath();
             ctx.arc(locations[key][0], locations[key][1], radius, 0, Math.PI * 2, true);
             ctx.fill();
         } else if(board[key] == 2) {
             ctx.fillStyle = "black";
+            if(key == piece_selected) ctx.fillStyle = "grey";
             ctx.beginPath();
             ctx.arc(locations[key][0], locations[key][1], radius, 0, Math.PI * 2, true);
             ctx.fill();
@@ -185,18 +187,14 @@ function draw_pieces(board) {
     }
 }
 
-function draw_turn(game_over) {
+function draw_turn() {
     ctx.font = "80px Copperplate, Papyrus, fantasy";
     ctx.fillStyle = "black";
     if(game_over == true) {
         ctx.fillText("GAME OVER", 250, 875);
     } else {
-        if(turn == 0) {
-
-            ctx.fillText("White's turn", 225, 875);
-        } else {
-            ctx.fillText("Black's turn", 225, 875);
-        }
+        if(turn == 0) ctx.fillText("White's turn", 225, 875);
+        else ctx.fillText("Black's turn", 225, 875);
     }
 }
 
@@ -230,13 +228,11 @@ function check_mill(player_val) {
         if(board[mills[i][0]] == player_val
         && board[mills[i][1]] == player_val
         && board[mills[i][2]] == player_val) {
-            console.log('checking: ', mills[i]);
             if(player_mill[turn].length == 0 || !player_mill[turn].includes(i)) {
-                console.log('new mill');
                 player_mill[turn].push(i);
                 handle_mill = turn;
                 for(let j = 0; j < mills[i].length; j++) {
-                    removable[turn] = removable[turn].filter(item => item !== mills[i][j]);
+                    removable[turn] = removable[turn].filter(_ => _ !== mills[i][j]);
                 }
                 found = true;
             }
@@ -251,38 +247,59 @@ function placing(item) {
         player_pieces[turn][1] += 1;
         player_pieces[turn][0] -= 1;
         if(!removable[turn].includes(item)) removable[turn].push(item);
-        console.log(removable[0], removable[1]);
         if(!check_mill(turn+1)) swap_turns();
         draw_board();
         // turn+1 = player val on board
     }
 }
 
-function moving(item) {
-    if(piece_selected == -1) {
-        if(board[item] == turn+1) piece_selected = item;
-    } else {
-        if(board[item] == 0 && board[piece_selected] == turn+1 && adjacency_list[piece_selected].includes(item)) {
-            board[piece_selected] = 0;
-            board[item] = turn+1;
-            removable[turn] = removable[turn].filter(item => item !== piece_selected);
-            removable[turn].push(item);
-            piece_selected = -1;
-            if(!check_mill(turn+1)) swap_turns();
-            draw_board();
+// in moving, check if there is an open space for a the player to move to
+// if there are no open spaces, return 0 and gameover = true
+function playable() {
+    for(const key in board) {
+        if(board[key] == turn+1) {
+            for(let i = 0; i < adjacency_list[key].length; i++) {
+                if(board[adjacency_list[key][i]] == 0) return true;
+            }
         }
     }
+    return false;
 }
 
-function flying(item) {
-    if(piece_selected == -1) {
-        if(board[item] == turn+1) piece_selected = item;
+function moveable(index) {
+    for(let i = 0; i < adjacency_list[index].length; i++) {
+        if(board[adjacency_list[index][i]] == 0) return true;
+    }
+    return false;
+}
+
+function move(item, movetype) {
+    if(piece_selected == -1 || board[item] == turn+1) {
+        if(board[item] == turn+1 && (moveable(item) || movetype == "flying")) {
+            piece_selected = item;
+            draw_board();
+        }
     } else {
-        if(board[item] == 0) {
+        if(board[item] == 0 && board[piece_selected] == turn+1 && (movetype == "flying" || (movetype == "moving" && adjacency_list[piece_selected].includes(item)))) {
             board[piece_selected] = 0;
             board[item] = turn+1;
-            removable[turn] = removable[turn].filter(item => item !== piece_selected);
-            removable[turn].push(item);
+            if(removable[turn].includes(piece_selected)) {
+                // the piece was not in a mill
+                removable[turn] = removable[turn].filter(_ => _ !== piece_selected);
+                removable[turn].push(item);
+            } else {
+                // the piece was in a mill
+                for(let i = 0; i < player_mill[turn].length; i++) {
+                    if(mills[player_mill[turn][i]].includes(piece_selected)) {
+                        const temp1 = mills[player_mill[turn][i]].length;
+                        const temp2 = player_mill[turn][i];
+                        for(let j = 0; j < temp1; j++) {
+                            removable[turn].push(mills[temp2][j]);
+                            player_mill[turn] = player_mill[turn].filter(_ => _ !== player_mill[turn][i]);
+                        }
+                    }
+                }
+            }        
             piece_selected = -1;
             if(!check_mill(turn+1)) swap_turns();
             draw_board();
@@ -306,12 +323,11 @@ function remove_piece(player, piece) {
         handle_mill = -1;
         return;
     }
-    if(removable[player].includes(piece) || player_mill[0].length == 0) {
+    if(removable[player].includes(piece)) {
         board[piece] = 0;
-        console.log('removing ', piece, ' from: ', removable[player]);
-        removable[player] = removable[player].filter(item => item !== piece);
-        console.log('now is: ', removable[player]);
+        removable[player] = removable[player].filter(_ => _ !== piece);
         player_pieces[player][1] -= 1;
+        if(player_pieces[player][1] < 3) game_over = true;
         swap_turns();
         draw_board();
         handle_mill = -1;
@@ -340,9 +356,13 @@ function start_game() {
         } else if(player_pieces[turn][0] > 0) {
             placing(item);
         } else if(player_pieces[turn][1] > 3) {
-            moving(item);
+            if(!playable()) {
+                game_over = true;
+                return;
+            }
+            move(item, "moving");
         } else if(player_pieces[turn][1] == 3) {
-            flying(item);
+            move(item, "flying");
         } else if(player_pieces[turn][1] < 3) {
             game_over = true;
             draw_board();
